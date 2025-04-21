@@ -2,6 +2,9 @@ import face_recognition
 import base64
 import pickle
 import tempfile
+import cv2
+import numpy as np
+import os
 
 from django.shortcuts import render
 from django.http import JsonResponse
@@ -39,12 +42,14 @@ def register_page(request):
             face_encodings = face_recognition.face_encodings(face_image_loaded)
 
             if not face_encodings:
+                os.unlink(temp_path)  # Clean up temp file
                 return JsonResponse({'status': 'error', 'message': 'No face detected during registration.'})
 
             encoding = face_encodings[0]
             user_image.face_encoding = pickle.dumps(encoding)
             user_image.save()
-
+            
+            os.unlink(temp_path)  # Clean up temp file
             return JsonResponse({'status': 'success', 'message': 'User registered successfully!'})
 
         except Exception as e:
@@ -73,15 +78,36 @@ def login_user(request):
             face_image_data = face_image_data.split(",")[1]
             face_bytes = base64.b64decode(face_image_data)
 
-            # Temp file to process
+            # Save to temp file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
                 temp_file.write(face_bytes)
                 temp_path = temp_file.name
 
+            # Basic liveness detection - check for photo-of-photo
+            img = cv2.imread(temp_path)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            # 1. Check image quality (blurry images might be photos of photos)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            if laplacian_var < 100:  # Threshold for blurriness
+                os.unlink(temp_path)  # Clean up
+                return JsonResponse({'status': 'error', 'message': 'Low quality image detected. Please try again with better lighting.'})
+            
+            # 2. Check for reflection patterns often seen in screen photos
+            # This is a simplified version - more advanced methods would use ML models
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            saturation = hsv[:,:,1]
+            sat_mean = np.mean(saturation)
+            if sat_mean < 30:  # Very low saturation might indicate a screen photo
+                os.unlink(temp_path)  # Clean up
+                return JsonResponse({'status': 'error', 'message': 'Screen reflection detected. Please use your real face.'})
+
+            # Process for face recognition
             uploaded_face = face_recognition.load_image_file(temp_path)
             uploaded_encoding_list = face_recognition.face_encodings(uploaded_face)
 
             if not uploaded_encoding_list:
+                os.unlink(temp_path)  # Clean up
                 return JsonResponse({'status': 'error', 'message': 'No face detected during login.'})
 
             uploaded_encoding = uploaded_encoding_list[0]
@@ -92,6 +118,8 @@ def login_user(request):
             
             # Also calculate face distance for better accuracy
             face_distance = face_recognition.face_distance([stored_encoding], uploaded_encoding)[0]
+            
+            os.unlink(temp_path)  # Clean up temp file
             
             # Combine both methods for better accuracy
             if match[0] and face_distance < 0.5:  # Lower distance means better match
