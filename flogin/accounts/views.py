@@ -1,32 +1,54 @@
 import face_recognition
 import base64
-from django.shortcuts import render, redirect
+import pickle
+import tempfile
+
+from django.shortcuts import render
 from django.http import JsonResponse
 from django.core.files.base import ContentFile
-from .models import UserImages,User
-import os
-from django.conf import settings
-
 from django.views.decorators.csrf import csrf_exempt
+
+from .models import UserImages, User
+
 
 @csrf_exempt
 def register_page(request):
     if request.method == 'POST':
-        username = request.POST['username']
-        face_image_data = request.POST['face_image']
+        try:
+            username = request.POST['username']
+            face_image_data = request.POST['face_image']
 
-        # Convert base64 image data to a file
-        face_image_data = face_image_data.split(",")[1]  # Remove the "data:image/jpeg;base64," part
-        face_image = ContentFile(base64.b64decode(face_image_data), name=f'{username}_face.jpg')
+            # Decode base64 image
+            face_image_data = face_image_data.split(",")[1]
+            face_bytes = base64.b64decode(face_image_data)
 
-        # Save the user and face image in the database
-        user = User(username=username)
-        user.save()
-        user_image = UserImages.objects.create(user = user, face_image = face_image)
+            # Save user
+            user = User(username=username)
+            user.save()
 
-        return JsonResponse({'status': 'success', 'message': 'User registered successfully!'})
+            # Save image to model
+            face_file = ContentFile(face_bytes, name=f'{username}_face.jpg')
+            user_image = UserImages.objects.create(user=user, face_image=face_file)
 
-    
+            # Save encoding
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                temp_file.write(face_bytes)
+                temp_path = temp_file.name
+
+            face_image_loaded = face_recognition.load_image_file(temp_path)
+            face_encodings = face_recognition.face_encodings(face_image_loaded)
+
+            if not face_encodings:
+                return JsonResponse({'status': 'error', 'message': 'No face detected during registration.'})
+
+            encoding = face_encodings[0]
+            user_image.face_encoding = pickle.dumps(encoding)
+            user_image.save()
+
+            return JsonResponse({'status': 'success', 'message': 'User registered successfully!'})
+
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
 
     return render(request, 'register.html')
 
@@ -34,37 +56,50 @@ def register_page(request):
 @csrf_exempt
 def login_user(request):
     if request.method == 'POST':
-        username = request.POST['username']
-        face_image_data = request.POST['face_image']
-
-        # Get the user by username
         try:
-            user = User.objects.get(username=username)
-        except User.DoesNotExist:
-            return JsonResponse({'status': 'error', 'message': 'User not found.'})
+            username = request.POST['username']
+            face_image_data = request.POST['face_image']
 
-        # Convert base64 image data to a file
-        face_image_data = face_image_data.split(",")[1]
-        uploaded_image = ContentFile(base64.b64decode(face_image_data), name=f'{username}_face.jpg')
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                return JsonResponse({'status': 'error', 'message': 'User not found.'})
 
-        # Compare the uploaded face image with the stored face image
-        uploaded_face_image = face_recognition.load_image_file(uploaded_image)
-        uploaded_face_encoding = face_recognition.face_encodings(uploaded_face_image)
+            user_image = UserImages.objects.filter(user=user).first()
+            if not user_image or not user_image.face_encoding:
+                return JsonResponse({'status': 'error', 'message': 'Face data not found for this user.'})
 
-        if uploaded_face_encoding:
-            uploaded_face_encoding = uploaded_face_encoding[0]
-            user_image = UserImages.objects.filter(user = user).first()
-            stored_face_image = face_recognition.load_image_file(user_image.face_image.path)
-            stored_face_encoding = face_recognition.face_encodings(stored_face_image)[0]
+            # Decode base64 image
+            face_image_data = face_image_data.split(",")[1]
+            face_bytes = base64.b64decode(face_image_data)
 
-            print(stored_face_image,stored_face_encoding)
-            # Compare the faces
-            match = face_recognition.compare_faces([stored_face_encoding], uploaded_face_encoding)
-            if match[0]:
+            # Temp file to process
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                temp_file.write(face_bytes)
+                temp_path = temp_file.name
+
+            uploaded_face = face_recognition.load_image_file(temp_path)
+            uploaded_encoding_list = face_recognition.face_encodings(uploaded_face)
+
+            if not uploaded_encoding_list:
+                return JsonResponse({'status': 'error', 'message': 'No face detected during login.'})
+
+            uploaded_encoding = uploaded_encoding_list[0]
+            stored_encoding = pickle.loads(user_image.face_encoding)
+
+            # Use a stricter tolerance (0.4 instead of default 0.6)
+            match = face_recognition.compare_faces([stored_encoding], uploaded_encoding, tolerance=0.4)
+            
+            # Also calculate face distance for better accuracy
+            face_distance = face_recognition.face_distance([stored_encoding], uploaded_encoding)[0]
+            
+            # Combine both methods for better accuracy
+            if match[0] and face_distance < 0.5:  # Lower distance means better match
                 return JsonResponse({'status': 'success', 'message': 'Login successful!'})
             else:
                 return JsonResponse({'status': 'error', 'message': 'Face recognition failed.'})
 
-        return JsonResponse({'status': 'error', 'message': 'No face detected in the image.'})
-   
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
+
     return render(request, 'login.html')

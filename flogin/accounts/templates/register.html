@@ -1,3 +1,4 @@
+<!-- register.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -109,7 +110,7 @@
             <input type="text" id="username" name="username" placeholder="Username" required>
             
             <div id="camera-container">
-                <video id="video" width="100%" height="auto" autoplay></video>
+                <video id="video" autoplay playsinline></video>
                 <button type="button" id="capture-button">Capture Face</button>
                 <canvas id="canvas" width="300" height="200"></canvas>
             </div>
@@ -120,7 +121,6 @@
     </div>
 
     <script>
-        // Get references to the video, canvas, and buttons
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const captureButton = document.getElementById('capture-button');
@@ -129,29 +129,23 @@
 
         let capturedImage = null;
 
-        // Access the camera and start the video stream
+        // Start camera stream
         navigator.mediaDevices.getUserMedia({ video: true })
             .then((stream) => {
                 video.srcObject = stream;
             })
             .catch((err) => {
-                console.log('Error accessing camera: ' + err);
-                messageDiv.innerText = 'Camera not accessible. Please check permissions.';
+                console.error('Camera error:', err);
+                messageDiv.innerText = 'Error accessing camera: ' + err.message;
             });
 
-        // Capture image from the video stream
         captureButton.addEventListener('click', () => {
-            if (!video.srcObject) {
-                messageDiv.innerText = "Please enable the camera.";
-                return;
-            }
             const context = canvas.getContext('2d');
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);  // Draw video frame to canvas
-            capturedImage = canvas.toDataURL('image/jpeg'); // Convert captured image to base64 format
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            capturedImage = canvas.toDataURL('image/jpeg');
             messageDiv.innerText = "Face captured successfully!";
         });
 
-        // Handle form submission
         registerForm.onsubmit = async (e) => {
             e.preventDefault();
 
@@ -163,13 +157,16 @@
             const formData = new FormData(registerForm);
             formData.append('face_image', capturedImage);
 
-            const response = await fetch('/register/', {
-                method: 'POST',
-                body: formData
-            });
-
-            const data = await response.json();
-            messageDiv.innerText = data.message || 'Registration failed.';
+            try {
+                const response = await fetch('/register/', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                messageDiv.innerText = data.message || 'Registration complete.';
+            } catch (error) {
+                messageDiv.innerText = 'Registration failed. Check server.';
+            }
         };
     </script>
 </body>

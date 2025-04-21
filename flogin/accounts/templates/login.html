@@ -1,3 +1,4 @@
+<!-- login.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -109,7 +110,7 @@
             <input type="text" id="username" name="username" placeholder="Username" required>
             
             <div id="camera-container">
-                <video id="video" width="100%" height="auto" autoplay></video>
+                <video id="video" autoplay playsinline></video>
                 <button type="button" id="capture-button">Capture Face</button>
                 <canvas id="canvas" width="300" height="200"></canvas>
             </div>
@@ -128,31 +129,22 @@
 
         let capturedImage = null;
 
-        // Access the camera and start the video stream
         navigator.mediaDevices.getUserMedia({ video: true })
             .then((stream) => {
                 video.srcObject = stream;
             })
             .catch((err) => {
-                console.log('Error accessing camera: ' + err);
-                messageDiv.innerText = 'Camera not accessible. Please check permissions.';
+                console.error('Camera error:', err);
+                messageDiv.innerText = 'Camera access denied: ' + err.message;
             });
 
-        // Capture image from the video stream
         captureButton.addEventListener('click', () => {
-            if (!video.srcObject) {
-                messageDiv.innerText = "Camera is not available.";
-                return;
-            }
-
             const context = canvas.getContext('2d');
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);  // Draw video frame to canvas
-            capturedImage = canvas.toDataURL('image/jpeg'); // Convert captured image to base64 format
-
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            capturedImage = canvas.toDataURL('image/jpeg');
             messageDiv.innerText = "Face captured successfully! Ready to login.";
         });
 
-        // Handle form submission
         loginForm.onsubmit = async (e) => {
             e.preventDefault();
 
@@ -172,14 +164,10 @@
                 });
 
                 const data = await response.json();
-                if (data.success) {
-                    messageDiv.innerText = data.message || 'Login successful!';
-                } else {
-                    messageDiv.innerText = data.message || 'Login failed.';
-                }
+                messageDiv.innerText = data.message || (data.success ? 'Login success.' : 'Login failed.');
             } catch (error) {
-                console.error('Error:', error);
-                messageDiv.innerText = 'An error occurred while processing your login.';
+                console.error('Login error:', error);
+                messageDiv.innerText = 'Login failed. Check server or network.';
             }
         };
     </script>
