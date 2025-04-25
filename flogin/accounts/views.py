@@ -10,8 +10,26 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.core.files.base import ContentFile
 from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+from .models import Vote
+from django.db.models import Count
 
 from .models import UserImages, User
+
+
+@csrf_exempt
+def voting_stats(request):
+    stats = (
+        Vote.objects
+        .values('candidate')
+        .annotate(vote_count=Count('candidate'))
+        .order_by('-vote_count')
+    )
+
+    data = list(stats)
+    return JsonResponse({'results': data})
+
+
 @csrf_exempt
 def helloworld(response):
     return JsonResponse({ 'message':'HIII'})
