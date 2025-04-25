@@ -12,6 +12,9 @@ from django.core.files.base import ContentFile
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import UserImages, User
+@csrf_exempt
+def helloworld(response):
+    return JsonResponse({ 'message':'HIII'})
 
 
 @csrf_exempt
